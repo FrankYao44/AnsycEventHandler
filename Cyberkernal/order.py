@@ -1,4 +1,6 @@
-import sth
+from numpy import array
+from CyberException import OrderFailedException
+import asyncio
 
 '''
 this is the core class of the whole project.
@@ -21,8 +23,16 @@ class OrderMetaclass(type):
     we will simply translate it into a list like this
     [[[keyword1,keyword2],[keyword3,keyword4]],keyword5,keyword6,(keyword7,)]
     then we will look up the dictionary,translate them like this
-    {(0,0,0):fn1,(0,0,1):fn2,.......,(3,):fn5,(4,):fn6}
+    {(0,0,0):fn1,(0,0,1):fn2,.......,(3,):fn5,(4,):fn6........,(-1):return_to_first}
     meanwhile a variety of args will be inputted as followed
+    finally added kwargs like this:
+        line = {(0,0,0):fn1,.......} (just look up)
+        entropy = len(line.keys()[0])
+        restriction = [FN, FN ]
+        args = [*args]
+        input_args = [*args] - [*result]
+        results = [..]
+
 
     '''
     def __new__(mcs, name, bases, attrs):
@@ -54,8 +64,8 @@ class OrderMetaclass(type):
                         order_sentence = order_sentence + '* '
                     else:
                         order_sentence = order_sentence + item + ' '
-                order_sentence.rstrip()
-                global CYBER
+                order_sentence = order_sentence.rstrip()
+                CYBER = asyncio.get_event_loop()
                 if order_sentence not in CYBER.dictionary:
                     raise ValueError('the sentence \'%s\' cannot be translated ' % n_sentence)
                 fn = CYBER.dictionary[order_sentence]
@@ -88,7 +98,7 @@ class OrderMetaclass(type):
                         if the_next == 'if':
                             raise ValueError('sentence %s error. check if you use double \'then\' ' % c_sentence)
                         s = the_rest[5:m]
-                        the_then = normal_sentence(s,True)
+                        the_then = explainer(s)
                         the_rest = the_rest[m:]
                         result += [the_if, the_then]
                 return result
@@ -99,7 +109,6 @@ class OrderMetaclass(type):
                 m = result.split(',then ')
                 result = map(normal_sentence, m)
                 return result
-
             if sentence.find('IF')+1:
 
                 return condition_sentence(sentence)
@@ -126,6 +135,8 @@ class OrderMetaclass(type):
         args = set()
         results = set()
         instruction_list = string.split('.')
+        if instruction_list[-1] == "":
+            instruction_list.pop()
         explained_line += list(map(explainer, instruction_list))
         for i in explained_line:
             if isinstance(i, tuple):
@@ -167,10 +178,14 @@ class OrderMetaclass(type):
                     line[rs].vector += [0]
                 line[rs].vector = array(line[rs].vector)
         for i in line.values():
-            args.update(set(i.params))
+            args.update(set(i.input))
             results.update(set(i.results))
-        line[(-1,)] = lambda:1
-        line[(-1,)].vector = [array((1,))]
+        line[(-1,)] = lambda: 1
+        a = [0 for _ in range(entropy)]
+        a[0] = 1
+        b = [0 for _ in range(entropy)]
+        b[0] = -1
+        line[tuple(b)].vector = [array(a)]
         input_args = args - (args & results)
         attrs['line'] = line
         attrs['entropy'] = entropy
@@ -206,8 +221,25 @@ class Order(dict, metaclass=OrderMetaclass):
         self.other_option = {}
         self.have_run_position = ()
         self.have_run_result = dict()
-        self.present_position = 0
+        a = [0 for _ in range(self.entropy)]
+        a[0] = -1
+        self.present_position = tuple(a)
         self.next_position_vector = ()
+        loop = asyncio.get_event_loop()
+        loop.create_task(self._run())
+
+    async def _run(self):
+        while True:
+            try:
+                coro = self.next_line()
+            except StopIteration:
+                break
+            try:
+                r = await coro
+                self.set_result_to_present_line(r)
+            except BaseException as e:
+                self.set_exception_to_present_line(e)
+
 
     def next_line(self):
         # use id to judge which way to continue
@@ -247,5 +279,10 @@ class Order(dict, metaclass=OrderMetaclass):
         for i in range(r):
             self.have_run_result[r(i)] = result[i]
 
-    def set_exception_to_present_line(self):
+    def set_exception_to_present_line(self, e):
         pass
+
+
+
+
+

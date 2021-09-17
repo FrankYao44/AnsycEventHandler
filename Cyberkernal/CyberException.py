@@ -1,0 +1,3 @@
+
+class OrderFailedException(Exception):
+    pass
