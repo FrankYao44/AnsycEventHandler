@@ -180,11 +180,12 @@ class OrderMetaclass(type):
         for i in line.values():
             args.update(set(i.input))
             results.update(set(i.results))
-        line[(-1,)] = lambda: 1
+
         a = [0 for _ in range(entropy)]
         a[0] = 1
         b = [0 for _ in range(entropy)]
         b[0] = -1
+        line[b] = lambda: 1
         line[tuple(b)].vector = [array(a)]
         input_args = args - (args & results)
         attrs['line'] = line
@@ -193,9 +194,7 @@ class OrderMetaclass(type):
         attrs['args'] = args
         attrs['input_args'] = input_args
         attrs['results'] = results
-        print('start  ',string,'\n',line,'\n',restriction,'\n',entropy,'\n',explained_line,'\n',input_args,'\n',results,'\n',instruction_list,'\n',' end'
-
-        )
+        #print('start  ',string,'\n',line,'\n',restriction,'\n',entropy,'\n',explained_line,'\n',input_args,'\n',results,'\n',instruction_list,'\n',' end')
         return type.__new__(mcs, name, bases, attrs)
 
 
@@ -243,7 +242,7 @@ class Order(dict, metaclass=OrderMetaclass):
 
     def next_line(self):
         # use id to judge which way to continue
-        if not getattr(self.line[self.present_position], 'next_id', None):
+        if not getattr(self.line[self.present_position], 'vector', None):
             raise StopIteration
         if len(self.line[self.present_position].vector) != 1:
             if self.present_position not in self.other_option.keys():
@@ -271,7 +270,6 @@ class Order(dict, metaclass=OrderMetaclass):
                 kwargs[i] = j
         if len(fn.params) != len(kwargs):
             raise TypeError('function require kw %s but %s was given' % (fn.params, [i for i in kwargs.keys()]))
-        print(fn.params)
         return fn(**kwargs)
 
     def set_result_to_present_line(self, result):
