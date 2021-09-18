@@ -5,7 +5,13 @@ from config import config
 
 
 class EventLoopPolicy(asyncio.DefaultEventLoopPolicy):
+
+    @classmethod
+    def start(cls):
+        return 0
+
     dictionary = dict()
+    dictionary["start"] = start
 
     def get_event_loop(self):
 

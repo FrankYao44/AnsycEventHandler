@@ -9,9 +9,10 @@ def dictionary_connector(sentence_pattern, results):
     # usually results ordered by time
     def decorator(fn):
         def wrapper(**kwargs):
-            if tuple(kwargs.keys()) != pk_input & fn.kw != True :
+            pk_input.update(pk_default)
+            if (tuple(kwargs.keys()) != tuple(pk_input.keys())) and fn.kw != True:
                 raise TypeError('%s expected %s arguments, got %s'
-                                % (fn.__name__, pk_input + pk_default, list(kwargs.keys())))
+                                % (fn.__name__, list(pk_input.keys()), list(kwargs.keys())))
             return fn(**dict(**kwargs))
 
         # this function can be used to introspect the func @ed to
@@ -33,12 +34,17 @@ def dictionary_connector(sentence_pattern, results):
                 arg = True
             elif param.kind == param.VAR_KEYWORD:
                 kw = True
+        fn.kw = kw
+
         wrapper.args = arg
-        wrapper.kwargs = kw
+        wrapper.kw = kw
         wrapper.input = pk_input
         wrapper.default = pk_default
         wrapper.__name__ = fn.__name__
         wrapper.results = results
+        a = {result: None for result in results}
+        a.update(pk_input)
+        wrapper.params = a
         wrapper.decorated = True
         loop = asyncio.get_event_loop()
         loop.dictionary[sentence_pattern] = wrapper

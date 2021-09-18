@@ -21,11 +21,14 @@ if __name__ == '__main__':
         def test_1_at_least_runnable(self):
 
             MyOrder = type('o', (Order,), {'instruction': "test *sth."})
-            # self.assertEqual(MyOrder.line, {(0,): loop.dictionary["test *"]})
+            self.assertEqual(MyOrder.line, {(0,): loop.dictionary["test *"], (-1,): loop.dictionary["start"]})
             self.assertEqual(MyOrder.entropy, 1)
             self.assertEqual(MyOrder.input_args, set(["sth"]))
             o = MyOrder(sth=2)
             loop.run_forever()
+
+        def test_4_exception_catcher(self):
+            pass
 
 
     unittest.main(verbosity=2)

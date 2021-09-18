@@ -65,10 +65,10 @@ class OrderMetaclass(type):
                     else:
                         order_sentence = order_sentence + item + ' '
                 order_sentence = order_sentence.rstrip()
-                CYBER = asyncio.get_event_loop()
-                if order_sentence not in CYBER.dictionary:
+                loop = asyncio.get_event_loop()
+                if order_sentence not in loop.dictionary:
                     raise ValueError('the sentence \'%s\' cannot be translated ' % n_sentence)
-                fn = CYBER.dictionary[order_sentence]
+                fn = loop.dictionary[order_sentence]
                 position(fn, present_position, condition)
   #              if set(fn.params) != set(finding_attr):
   #                  raise ValueError('takes argument %s, but %s was given' % (fn.params, finding_attr))
@@ -180,12 +180,12 @@ class OrderMetaclass(type):
         for i in line.values():
             args.update(set(i.input))
             results.update(set(i.results))
-
+        loop = asyncio.get_event_loop()
         a = [0 for _ in range(entropy)]
         a[0] = 1
         b = [0 for _ in range(entropy)]
         b[0] = -1
-        line[b] = lambda: 1
+        line[tuple(b)] = loop.dictionary["start"]
         line[tuple(b)].vector = [array(a)]
         input_args = args - (args & results)
         attrs['line'] = line
@@ -220,6 +220,7 @@ class Order(dict, metaclass=OrderMetaclass):
         self.other_option = {}
         self.have_run_position = ()
         self.have_run_result = dict()
+        self.exception = []
         a = [0 for _ in range(self.entropy)]
         a[0] = -1
         self.present_position = tuple(a)
@@ -239,7 +240,6 @@ class Order(dict, metaclass=OrderMetaclass):
             except BaseException as e:
                 self.set_exception_to_present_line(e)
 
-
     def next_line(self):
         # use id to judge which way to continue
         if not getattr(self.line[self.present_position], 'vector', None):
@@ -252,7 +252,7 @@ class Order(dict, metaclass=OrderMetaclass):
                 try:
                     self.present_position = list(self.other_option.keys())[-1]
                 except IndexError:
-                    raise OrderFailedException
+                    raise OrderFailedException(self.exception)
             vector = self.other_option[self.present_position][0]
             self.other_option[self.present_position].pop(0)
             v = array(self.present_position) + vector
@@ -278,7 +278,9 @@ class Order(dict, metaclass=OrderMetaclass):
             self.have_run_result[r(i)] = result[i]
 
     def set_exception_to_present_line(self, e):
-        pass
+
+        self.exception += e
+
 
 
 
