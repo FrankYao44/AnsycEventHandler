@@ -1,230 +1,213 @@
-from numpy import array
-from CyberException import OrderFailedException
+import logging
+from CyberException import OrderFailedException, ConditionWrongException
 import asyncio
 
-'''
-this is the core class of the whole project.
->>> order = Order(**kw)
-    new order created,new Task created.
->>> loop = asyncio.get_event_loop()
->>> loop.run_forever()
-'after some time'
-    the order has been done
-'''
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+                    datefmt='%a, %d %b %Y %H:%M:%S')
 
 
-class OrderMetaclass(type):
+class NumberVectorMetaclass(type):
+    """
+    language standard
+    1. consist of sentence,separated by \n.
+        for example:
+            do sth(\n)
+            do some other thing (\n)
+        sentence , which will translated to standard function key(look below),
+        will finally translated to function in dictionary.
+        for example  ,the sentence above will be translated to this:
+            fn1(__name__==do_sth) fn2 (__name__==do_other_thing)
+    2. sentence compose to instruction.
+        for accurate, they will be transform to a dictionary which key is N and value is FN type
+        for example, the sentence above will be fianlly translated to such:
+            {0: FN_object(with fn1 write in the args), 1: FN_object(fn2)}
+    3. FN type take the position of arrow,for they all have a later_id list ,which save the id whose fn next to be run.
+        for example, the sentence above FN type will be like this:
+            FN_object.later_id = [0] FN_object.later_id = [1], FN_object.later_id = ["end"], FN_object.later_id = []
+        two special FN, "start" and "end", will straightly add to line
+        when running ,the function will be called, added to event_loop.
+    4. IF language: IF condition1
+                    condition2
+                    Then do A
+                    do B
+                    ELIF condition3
+                    THEN do C
+                    IF condition4
+                    THEN do D
+                    ENDIF
+                    ENDIF
+        (try to keep pace with pseudo-code)
+    5. the explainer will be like this :
+        FN_object.later_id:[0],FN_object.later_id:[1],FN_object.later_id:[2,4],
+        FN_object.later_id:[3,2],FN_object.later_id:["END"],FN_object.later_id:[5,"END"],
+        FN_object.later_id:[6],FN_object.later_id:[7,"END"],FN_object.later_id:["END",6],FN_object.later_id:[],
+        rule: logically in advance(first do,then other option) ;back to nearest judgement point;
+    6. restriction
+    7. loop
+    """
+
     '''
-    the order class should have an attr named
-    instruction like this:
-    'if you are good, save you in database;if you are bad, save yourself in database.
-    calc how good you are now.print it to me.
-    for those who good is too low, kill them'
-    we will simply translate it into a list like this
-    [[[keyword1,keyword2],[keyword3,keyword4]],keyword5,keyword6,(keyword7,)]
-    then we will look up the dictionary,translate them like this
-    {(0,0,0):fn1,(0,0,1):fn2,.......,(3,):fn5,(4,):fn6........,(-1):return_to_first}
-    meanwhile a variety of args will be inputted as followed
-    finally added kwargs like this:
-        line = {(0,0,0):fn1,.......} (just look up)
-        entropy = len(line.keys()[0])
-        restriction = [FN, FN ]
-        args = [*args]
-        input_args = [*args] - [*result]
-        results = [..]
-
-
+    more Specifically:
+    test *a\n
+    IF i am right\n
+    i am right\n
+    IF i am right\n
+    test *b\n
+    ENDIF\n
+    ENDIF
+    {"start":FN(?), 0:FN(fn1), 1:FN(fn2), 2:FN(fn2), 3:FN(f2), 4:FN(fn1), 5: FN()}
     '''
-    def __new__(mcs, name, bases, attrs):
-        def explainer(sentence):
-            def position(var, present_position=0, condition=False):
-                if not getattr(var, 'postion', None):
-                    var.position = [present_position]
-                    return
-                if condition:
-                    var.position.append(0)
+
+    def __new__(cls, name, bases, attrs):
+
+        class FN:
+            def __init__(self, fn, inputer, results):
+                self.fn = fn
+                self.later_id = []
+                self.inputer = inputer
+                self.results = results
+
+            def set_later(self, later_id):
+                self.later_id.append(later_id)
+
+            def delete_later(self):
+                try:
+                    self.later_id.pop(0)
+                except IndexError as e:
+                    raise e
+
+            def __call__(self, *args, **kwargs):
+                return self.fn(*args, **kwargs)
+
+        class SentenceHandlerFactory:
+            # run check function out of order.
+            # will finally transform the sentence to the form above
+            # whatever _do function run, it must make the status dict look like this
+            # status = {FN_object line[n], tuple connection[n], int toward_only[n], int backward_only[n]}
+            def __init__(self, present_sentence_list, sentence_index, status):
+                self.sentence = present_sentence_list[sentence_index]
+                self.sentence_index = sentence_index
+                self.present_sentence_list = present_sentence_list
+                self.result = ""
+                self.status = status
+                for element in dir(self):
+                    if element.startswith("_do"):
+                        fn = getattr(self, element)
+                        fn()
+                self._translate()
+
+            def _do_check_at_first_sentence(self):
+                if self.sentence.startswith("THEN"):
+                    self.result = self.sentence[5:]
+                    self.status["connection"].append((self.sentence_index - 1, self.sentence_index))
+                elif self.sentence.startswith("STARTL"):
+                    self.result = ""
                 else:
-                    var.position[-1] += 1
+                    self.result = self.sentence
+                    self.status["connection"].append((self.sentence_index - 1, self.sentence_index))
 
-            def normal_sentence(n_sentence, present_position=0, condition=False):
+            def _do_check_if_sentence(self):
+                if "condition" not in self.status.keys():
+                    self.status["condition"] = []
+                logging.info("handle %s when condition is %s" %(self.result, self.status["condition"]))
+                if self.sentence.startswith("IF"):
+                    self.status["condition"] += [[self.sentence_index]]
+                    # self.status["connection"].append((self.sentence_index - 1, self.sentence_index))
+                    self.result = self.sentence[3:]
+                elif self.sentence.startswith("ELSE IF"):
+                    if not self.status["condition"]:
+                        raise Exception
+                    self.status['connection'].append((self.status["condition"][-1][-1], self.sentence_index))
+                    self.status["condition"][-1].append(self.sentence_index)
+                    self.status["toward_only"].append(self.sentence_index)
+                    self.result = self.sentence[8:]
+                elif self.sentence.startswith("ELSE"):
+                    self.status['connection'].append((self.status["condition"][-1][-1], self.sentence_index))
+                    self.status["toward_only"].append(self.sentence_index)
+                    self.result = self.sentence[5:]
+                elif self.sentence.startswith("ENDIF"):
+                    self.status["connection"].append((self.status["condition"][-1][-1], self.sentence_index))
+                    self.status['condition'].pop(-1)
+                    self.result = ''
 
-                if n_sentence.find(',') + 1:
-                    single_order = n_sentence.split(',')
-                    result = []
-                    for k in range(len(single_order)):
-                        result.extend(normal_sentence(single_order[k], k))
-                    return result
-                single_word = n_sentence.split(' ')
+            def _translate(self):
+                loop = asyncio.get_event_loop()
+                if not self.result:
+                    self.status["line"].append(FN(loop.dictionary["None"], (), ()))
+                    return
+
+                single_word = self.result.split(' ')
                 finding_attr = []
+                return_attr = ""
                 order_sentence = ''
                 for item in single_word:
                     # what if ''
+                    if item == '':
+                        continue
                     if item[0] == '*':
                         finding_attr.append(item[1:])
                         order_sentence = order_sentence + '* '
+                    elif item[0] == "&":
+                        return_attr = item[1:]
+                        order_sentence = order_sentence + '& '
                     else:
                         order_sentence = order_sentence + item + ' '
                 order_sentence = order_sentence.rstrip()
-                loop = asyncio.get_event_loop()
                 if order_sentence not in loop.dictionary:
-                    raise ValueError('the sentence \'%s\' cannot be translated ' % n_sentence)
+                    logging.warning("%s cannot be translated" % self.result)
+                    raise ValueError('the sentence \'%s\' cannot be translated ' % self.result)
                 fn = loop.dictionary[order_sentence]
-                position(fn, present_position, condition)
-  #              if set(fn.params) != set(finding_attr):
-  #                  raise ValueError('takes argument %s, but %s was given' % (fn.params, finding_attr))
-                return fn
+                rs = FN(fn, finding_attr, return_attr)
+                logging.debug("when running %s, return is %s, args is %s, function is %s" %
+                              (self.sentence, return_attr, finding_attr, fn.__name__))
+                self.status["result"].add(return_attr)
+                self.status["args"].update(finding_attr)
+                self.status["line"].append(rs)
 
-            def condition_sentence(c_sentence):
-                # double condition is not allowed
-                the_rest = c_sentence
-                result = []
-                the_if = []
-                while True:
-                    the_next = 'if'
-                    m = c_sentence.find('if ')
-                    n = c_sentence.find('then ')
-                    if n == m == -1:
-                        break
-                    if m < n & m != -1:
-                        if the_next == 'then':
-                            raise ValueError('sentence %s error. check if you use double \'if\' ' % c_sentence)
-                        s = the_rest[3:n]
-                        the_if = normal_sentence(s)
-                        the_rest = the_rest[n:]
-                        the_next = 'then'
-                    if n < m | m == -1:
-                        if n == -1:
-                            raise ValueError('sentence %s error. check if you use single \'if\' ' % c_sentence)
-                        if the_next == 'if':
-                            raise ValueError('sentence %s error. check if you use double \'then\' ' % c_sentence)
-                        s = the_rest[5:m]
-                        the_then = explainer(s)
-                        the_rest = the_rest[m:]
-                        result += [the_if, the_then]
-                return result
-
-            def restriction_sentence(r_sentence):
-                # for those who
-                result = r_sentence[14:]
-                m = result.split(',then ')
-                result = map(normal_sentence, m)
-                return result
-            if sentence.find('IF')+1:
-
-                return condition_sentence(sentence)
-            elif sentence.find('FOR THOSE WHO')+1:
-
-                return tuple(['r', restriction_sentence(sentence)])
-            else:
-
-                return normal_sentence(sentence)
+            def make_connection(self):
+                conn = self.status["connection"]
+                logging.debug("connection list %s ready to pair" % conn)
+                line = self.status["line"]
+                to = self.status["toward_only"]
+                back = self.status["backward_only"]
+                for t, b in conn:
+                    # warning
+                    if t in back:
+                        back.remove(t)
+                        logging.debug("the connection (%s, %s) not making connection" % (t, b))
+                        continue
+                    if b in to:
+                        to.remove(b)
+                        logging.debug("the connection (%s, %s) not making connection" % (t, b))
+                        continue
+                    logging.info("make connection between %s and %s when handling %s" % (t, b, line[t].fn.__name__))
+                    line[t].set_later(b)
 
         if name == 'Order':
-            return type.__new__(mcs, name, bases, attrs)
-        '''
-        won't be edited until I learn NN
-        now it will be created by user
-        aimed to translate args in Order child class into order_line
-        '''
-        # here to explain words
-        string = attrs['instruction']
-        line = {}
-        restriction = []
-        entropy = 1
-        explained_line = []
-        args = set()
-        results = set()
-        instruction_list = string.split('.')
-        if instruction_list[-1] == "":
-            instruction_list.pop()
-        explained_line += list(map(explainer, instruction_list))
-        for i in explained_line:
-            if isinstance(i, tuple):
-                if i[0] == 'rs':
-                    restriction += i
-                    explained_line.remove(i)
+            return type.__new__(cls, name, bases, attrs)
 
-        def position_judgement(order_list, position_tuple, condition=False):
-            init_list = []
-            for k in range(len(position_tuple)):
-                init_list += [0]
-            for j in range(len(order_list)):
-                if callable(order_list[j]):
-                    line[position_tuple + (j,)] = order_list[j]
-                    if sum(list(position_tuple + (j,))):
-                        if condition:
-                            line[position_tuple[:-2]].vector.append(init_list[:-2] + list(position_tuple[-2:]))
-                        else:
-                            if getattr(line[position_tuple + (j-1,)],'vector', None):
-                                line[position_tuple + (j-1,)].vector.append(init_list[:-1] + [1])
-                            else:
-                                line[position_tuple + (j - 1,)].vector = [init_list[:-1] + [1]]
-                if isinstance(order_list[j], list):
-                    position_judgement(order_list[j], position_tuple + (j,), True)
-
-        position_judgement(explained_line, ())
-        for i in line.keys():
-            if len(i) >= entropy:
-                entropy = len(i)
-        for i in line.keys():
-            rs = i
-            while len(i) < entropy:
-                rs += (0,)
-            line[rs] = line[i]
-            if i != rs:
-                line.pop(i)
-            if getattr(line[rs], 'vector', None):
-                while len(line[rs].vector) < entropy:
-                    line[rs].vector += [0]
-                line[rs].vector = array(line[rs].vector)
-        for i in line.values():
-            args.update(set(i.input))
-            results.update(set(i.results))
-        loop = asyncio.get_event_loop()
-        a = [0 for _ in range(entropy)]
-        a[0] = 1
-        b = [0 for _ in range(entropy)]
-        b[0] = -1
-        line[tuple(b)] = loop.dictionary["start"]
-        line[tuple(b)].vector = [array(a)]
-        input_args = args - (args & results)
-        attrs['line'] = line
-        attrs['entropy'] = entropy
-        attrs['restriction'] = restriction
-        attrs['args'] = args
-        attrs['input_args'] = input_args
-        attrs['results'] = results
-        #print('start  ',string,'\n',line,'\n',restriction,'\n',entropy,'\n',explained_line,'\n',input_args,'\n',results,'\n',instruction_list,'\n',' end')
-        return type.__new__(mcs, name, bases, attrs)
+        instruction = attrs['instruction']
+        sentence_list = instruction.split("\n")
+        status = {"connection": [], "toward_only": [], "backward_only": [], "line": [], "result": set(), "args": set()}
+        sentence_list.append("STARTL")
+        for index in range(len(sentence_list)):
+            s = SentenceHandlerFactory(sentence_list, index, status)
+        s.make_connection()
+        attrs['line'] = status["line"]
+        attrs['args'] = status["args"]
+        attrs['results'] = status["result"]
+        attrs['input_args'] = attrs['args'] - attrs['results']
+        return type.__new__(cls, name, bases, attrs)
 
 
-class Order(dict, metaclass=OrderMetaclass):
-    '''
-        the metaclass must have done these:
-        it has created a list like this
-        [(1,2,2,1,3,3)=fn1,(1,3,4,2)=fn2)]
-        which key is used as identification
-        fn which has some additional args , such as params, next_id
-        meanwhile some list will be inputted
-        restriction, args_name(all the args will be posted),
-        input_args_name(those you must input in advance), results_name(the result of fn)
-    '''
-
-    # self.line ,inherited from list, is simply a list
+class Order(metaclass=NumberVectorMetaclass):
     def __init__(self, **kwargs):
         super().__init__()
-        self.update(self.line)
-        if set(kwargs.keys()) != self.input_args:
-            raise ValueError('takes %s positional argument but %s were given' % (self.input_args, list(kwargs.keys())))
         self.input_args = kwargs
-        self.other_option = {}
-        self.have_run_position = ()
-        self.have_run_result = dict()
+        self.other_option = []
+        self.present_index = -1
+        self.args_dict = self.input_args
         self.exception = []
-        a = [0 for _ in range(self.entropy)]
-        a[0] = -1
-        self.present_position = tuple(a)
-        self.next_position_vector = ()
         loop = asyncio.get_event_loop()
         loop.create_task(self._run())
 
@@ -233,56 +216,59 @@ class Order(dict, metaclass=OrderMetaclass):
             try:
                 coro = self.next_line()
             except StopIteration:
-                break
+                return
+            except Exception as e:
+                raise e
             try:
                 r = await coro
+                if r:
+                    if getattr(r, "__name__", None) == 'ConditionWrongException':
+                        p = self.present_index
+                        self.present_index = self.other_option[-1]
+                        if p == self.present_index:
+                            self.line[self.present_index].delete_later()
+                        continue
                 self.set_result_to_present_line(r)
+
             except BaseException as e:
+                raise e
                 self.set_exception_to_present_line(e)
 
     def next_line(self):
-        # use id to judge which way to continue
-        if not getattr(self.line[self.present_position], 'vector', None):
-            raise StopIteration
-        if len(self.line[self.present_position].vector) != 1:
-            if self.present_position not in self.other_option.keys():
-                self.other_option[self.present_position] = self.line[self.present_position].vector
-            while list(self.other_option.keys())[-1] is []:
-                self.other_option.pop(list(self.other_option.keys())[-1])
+        while True:
+            fn = self.line[self.present_index]
+            try:
+                index = fn.later_id[0]
+                fn.delete_later()
+                next_fn = self.line[index]
+                self.present_index = index
+                if len(next_fn.later_id) > 1:
+                    self.other_option.append(self.present_index)
+                l = []
                 try:
-                    self.present_position = list(self.other_option.keys())[-1]
+                    for i in next_fn.inputer:
+                        l.append(self.args_dict[i])
+                except KeyError:
+                    raise KeyError("check your code and fond out why a later called thing be used in advance "
+                                   "%s not in %s" % (i, self.args_dict))
+                return next_fn(*l)
+
+            except IndexError:
+                if self.present_index == len(self.line) -2:
+                    raise StopIteration
+                try:
+                    self.present_index = self.other_option[-1]
+                    return self.next_line()
                 except IndexError:
-                    raise OrderFailedException(self.exception)
-            vector = self.other_option[self.present_position][0]
-            self.other_option[self.present_position].pop(0)
-            v = array(self.present_position) + vector
-            self.present_position = tuple(v.tolist()[0])
-        else:
-            self.present_position = tuple((array(self.present_position)
-                                           + self.line[self.present_position].vector).tolist()[0])
-        fn = self.line[self.present_position]
-        kwargs = dict()
-        for i, j in self.have_run_result.items():
-            if i in fn.params:
-                kwargs[fn.params] = j
-        for i, j in self.input_args.items():
-            if i in fn.params:
-                kwargs[i] = j
-        if len(fn.params) != len(kwargs):
-            raise TypeError('function require kw %s but %s was given' % (fn.params, [i for i in kwargs.keys()]))
-        return fn(**kwargs)
+                    if set(self.exception) - {ConditionWrongException}:
+                        raise OrderFailedException
+                    else:
+                        raise StopIteration
 
     def set_result_to_present_line(self, result):
-        r = self.line[self.present_position].results
-        for i in range(r):
-            self.have_run_result[r(i)] = result[i]
+        r = self.line[self.present_index].results
+        self.args_dict[r] = result
 
     def set_exception_to_present_line(self, e):
 
-        self.exception += e
-
-
-
-
-
-
+        self.exception.append(e)
