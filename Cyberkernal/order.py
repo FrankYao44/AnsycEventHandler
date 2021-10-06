@@ -1,5 +1,5 @@
 import logging
-from CyberException import OrderFailedException, ConditionWrongException
+from Cyberkernal.CyberException import OrderFailedException, ConditionWrongException
 import asyncio
 
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',

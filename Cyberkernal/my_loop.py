@@ -1,7 +1,7 @@
 import os
 import threading
 import asyncio
-from config import config
+from Cyberkernal.config import config
 
 
 class EventLoopPolicy(asyncio.DefaultEventLoopPolicy):
@@ -12,6 +12,9 @@ class EventLoopPolicy(asyncio.DefaultEventLoopPolicy):
 
     dictionary = dict()
     dictionary["start"] = start
+    thread_dict = dict()
+    thread_queue = dict()
+    process_dict = dict()
 
     def get_event_loop(self):
 
@@ -20,6 +23,9 @@ class EventLoopPolicy(asyncio.DefaultEventLoopPolicy):
         except RuntimeError:
             loop = asyncio.new_event_loop()
         loop.dictionary = self.dictionary
+        loop.thread_dict = self.thread_dict
+        loop.process_dict = self.process_dict
+        loop.thread_queue = self.thread_queue
         asyncio.set_event_loop(loop)
         return loop
 

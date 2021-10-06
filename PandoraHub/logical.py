@@ -1,4 +1,4 @@
-from PandoraHub.decorator import dictionary_connector
+from PandoraHub.decorator import dictionary_connector, to_coroutine
 from PandoraHub.communicate import *
 import asyncio
 

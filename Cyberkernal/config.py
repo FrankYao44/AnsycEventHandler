@@ -6,6 +6,7 @@ config = {
     'timeout': None,
     'headers': None,
     'read_size': 65536,
+    "path": "C:\\Users\\YX\\PycharmProjects\\AsyncEventHandler\\",
 
 
 

@@ -1,7 +1,7 @@
 import asyncio
-import my_loop
+from Cyberkernal import my_loop
 import PandoraHub
-from order import Order
+from Cyberkernal.order import Order
 import unittest
 import warnings
 warnings.simplefilter("ignore")
@@ -74,13 +74,24 @@ if __name__ == '__main__':
             self.assertEqual(MyOrder.input_args, {"sth", "another_thing"})
             # self.assertEqual([a.later_id for a in MyOrder.line], [[1], [2, 10], [3], [4], [5, 6], [], [7, 9], [8], [9], [10], [], [0]])
             o = MyOrder(sth=9, another_thing=0)
-            loop.run_forever()
+
 
         def test_3_Process(self):
-            pass
+            MyOrder = type('o', (Order,), {'instruction': "process for *Expand init\n"
+                                                          "just run in process *fn_name of *Expand with *kw to &a\n"
+                                                          "test *a\n"
+                                                            "process for *Expand all terminate"})
+            #
+                           #                               "process for *Expand all terminate"
+            o = MyOrder(fn_name="calc", Expand="test", kw={"num": 2333})
+
 
         def test_4_Thread(self):
-            pass
+            MyOrder = type('o', (Order,), {'instruction': "thread for *exp init\n"
+                                                          "just run in thread *fn of *exp with *kw to &a\n"
+                                                          "test *a\n"
+                                                          "thread for *exp all terminate"})
+            MyOrder(fn="calc", exp="test", kw={"num": 338})
 
         def test_5_neteork(self):
             pass
@@ -89,7 +100,7 @@ if __name__ == '__main__':
             pass
 
         def test_9_exception_catcher(self):
-            pass
+            loop.run_forever()
 
 
     unittest.main(verbosity=2)
