@@ -1,8 +1,8 @@
 import asyncio
 import inspect
 import warnings
+import functools
 from Cyberkernal.CyberException import ConditionWrongException
-
 
 
 def dictionary_connector(sentence_pattern, results):
@@ -11,6 +11,7 @@ def dictionary_connector(sentence_pattern, results):
     # patient: using this function, you just have to post args in order
     # usually results ordered by time
     def decorator(fn):
+        @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             return fn(*args, **kwargs)
 
@@ -47,6 +48,7 @@ def dictionary_connector(sentence_pattern, results):
         wrapper.decorated = True
         loop = asyncio.get_event_loop()
         loop.dictionary[sentence_pattern] = wrapper
+        return wrapper
 
     return decorator
 

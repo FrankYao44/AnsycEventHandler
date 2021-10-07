@@ -18,67 +18,6 @@ def code(fn, kwargs={}):
     return j
 
 
-class NewProcess(asyncio.subprocess.Process):
-    async def communicate_one(self, input=None, timeout=0):
-        if input is not None:
-            if self.stdin.transport.is_closing():
-                stdin = self._noop()
-                print("warning")
-            else:
-                stdin = self._feed_stdin(input)
-        else:
-            stdin = self._noop()
-        if self.stdout is not None:
-            stdout = self._read_stream(1)
-        else:
-            stdout = self._noop()
-        if self.stderr is not None:
-            stderr = self._read_stream(2)
-        else:
-            stderr = self._noop()
-        stdin, stdout, stderr = await tasks.gather(stdin, stdout,stderr, loop=self._loop)
-        return stdout.decode("UTF-8")
-
-    async def _read_stream(self, fd):
-        transport = self._transport.get_pipe_transport(fd)
-        if fd == 2:
-            stream = self.stderr
-            output = await stream.read(0)
-            transport.close()
-            return output
-        else:
-            assert fd == 1
-            stream = self.stdout
-        if self._loop.get_debug():
-            name = 'stdout' if fd == 1 else 'stderr'
-            logger.debug('%r communicate: read %s', self, name)
-        output = b''
-        while 1:
-            o = await stream.read(1)
-            print(o)
-            if o == b'$':
-                break
-            else:
-                output += o
-        import time
-        # time.sleep(1)
-        # await tasks.gather(self._feed_stdin(b"{\"function_name\": \"terminate\"}"), loop=self._loop)
-        # while 1:
-        #     o = await stream.read(1)
-        #     if o == b'$':
-        #         break
-        #     else:
-        #         output += o
-        if self._loop.get_debug():
-            name = 'stdout' if fd == 1 else 'stderr'
-            logger.debug('%r communicate: close %s', self, name)
-        return output
-
-
-
-asyncio.subprocess.Process = NewProcess
-
-
 def url_create(main_url, expand, js):
     h = hashlib.md5()
     h.update((expand + config['salt']).encode('utf-8'))
@@ -86,19 +25,21 @@ def url_create(main_url, expand, js):
 
 
 @dictionary_connector('network for * init', ())
-def network_init(address):
+async def network_init(address):
     loop = asyncio.get_event_loop()
     if not getattr(loop.__dict__, 'SEM', False):
         loop.SEM = asyncio.Semaphore(config['sem_number'])
-    loop.connected_network[address] = aiohttp.ClientSession()
+    loop.session_dict[address] = aiohttp.ClientSession()
+    print(1)
+    await asyncio.sleep(0)
 
 
 @dictionary_connector('network for * close', ())
 async def network_close(address):
     loop = asyncio.get_event_loop()
-    if address not in loop.connected_network:
+    if address not in loop.session_dict:
         raise Exception
-    await loop.connected_network[address].close()
+    await loop.session_dict[address].close()
 
 
 @dictionary_connector('process for * init', ())
@@ -108,26 +49,24 @@ async def process_init(expand_name):
         loop.process_dict[expand_name] = []
     expand_path = os.path.join(config["path"], "Expand", expand_name, "application_interface.py")
     coro = asyncio.create_subprocess_shell('python %s' % expand_path,
-                                        stdin=asyncio.subprocess.PIPE,
-                                        stdout=asyncio.subprocess.PIPE,
-                                        stderr=asyncio.subprocess.PIPE)
+                                           stdin=asyncio.subprocess.PIPE,
+                                           stdout=asyncio.subprocess.PIPE,
+                                           stderr=asyncio.subprocess.PIPE)
     p = await coro
     if expand_name not in loop.process_dict:
         loop.process_dict[expand_name] = []
     loop.process_dict[expand_name].append(p)
 
+
 @dictionary_connector('process for * all terminate', ())
 async def process_terminate(expand_name):
     loop = asyncio.get_event_loop()
     if expand_name not in loop.process_dict:
-        raise KeyError("no wxpang process named {} running yet".format(expand_name))
+        raise KeyError("no expand process named {} running yet".format(expand_name))
     for p in loop.process_dict[expand_name]:
         r = code("process_terminate", {})
-        result = await p.communicate_one(input=r.encode("UTF-8"))
-        #result = await p.communicate(r.encode("UTF-8"))
-        #print("lunch")
-        #await p.wait()
-        print(111,result)
+        await p.communicate(input=r.encode("UTF-8"))
+
 
 @dictionary_connector('thread for * init', ())
 async def thread_init(expand_name):
@@ -155,25 +94,34 @@ async def thread_terminate(expand_name):
             continue
         else:
             f = loop.create_future()
-            loop.thread_queue[expand_name][i].append([{"function_name":"terminate"},f])
+            loop.thread_queue[expand_name][i].append([{"function_name": "terminate"}, f])
             await f
     loop.thread_dict[expand_name] = []
     loop.thread_queue[expand_name] = []
 
 
-@dictionary_connector('just get from *', ())
+@dictionary_connector('just get from * to &', ('r',))
 async def base_network_communicate_get(url):
     loop = asyncio.get_event_loop()
     async with loop.SEM:
-        async with loop.client_session as session:
-            resp = await session.get(url,
+        address = url[:url.find("/", 8)]
+        args = url[url.find("/", 8):]
+        async with loop.session_dict[address] as session:
+            # args = args.replace(":", "a")
+            # args = args.replace(",", "a")
+            # args = args.replace(" ", "a")
+            # args = args.replace("\"", "a")
+            # args = args.replace("{", "a")
+            # args = args.replace("}", "a")
+            # args = args.replace("_", "a")
+            resp = await session.get(address+args,
                                      cookies=config['cookies'],
                                      timeout=config['timeout'],
                                      headers=config['headers'])
             assert resp.status == 200
             r = await resp.content.read(config['read_size'])
             chuck = await resp.content.read(config['read_size'])
-            assert not chuck
+            # assert not chuck
             return r
 
 
@@ -182,27 +130,26 @@ async def default_run_in_process_expand(fn_name, expand_name, kwargs_dict):
     loop = asyncio.get_event_loop()
     p = loop.process_dict[expand_name][0]
     r = code(fn_name, kwargs_dict)
-    # result = await p.communicate(input=r.encode("UTF-8"))
-    result = await p.communicate_one(r.encode("UTF-8"), 1)
-    # await p.wait()
-    # equal to p.communicate(r)
-    return result
+    result = await p.communicate(input=r.encode("UTF-8"))
+    if result[-1] != b'':
+        raise Exception(result[-1].decode("utf-8"))
+    else:
+        return result[0].decode("utf-8")
 
 
 @dictionary_connector('just run in thread * of * with * to &', ('result',))
 async def default_run_in_thread_expand(fn_name, expand_name, kwargs_dict):
     loop = asyncio.get_event_loop()
     f = loop.create_future()
-    r = {"function_name":fn_name}
+    r = {"function_name": fn_name}
     r.update(kwargs_dict)
     loop.thread_queue[expand_name][0].append([r, f])
     result = await f
     return result
 
 
-@dictionary_connector('just run in network * of * with *', ('result',))
+@dictionary_connector('just run in network * of * with * to &', ('result',))
 async def default_run_in_network_expand(fn_name, expand_name, kwargs_dict):
-    loop = asyncio.get_event_loop()
-    url = url_create(expand_name, code(fn_name, kwargs_dict))
+    url = url_create(config["url"], expand_name, code(fn_name, kwargs_dict))
     result = await base_network_communicate_get(url)
     return result

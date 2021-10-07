@@ -13,33 +13,22 @@ def executor(w):
     fn = globals()[j['function_name']]
     j.pop('function_name')
     r = fn(**j)
+    sys.stdout.write(str(r))
     return json.dumps(r)
 
 
 def run_in_process():
-    globals()["process_running"] = True
-    def listener():
-        while globals()["process_running"]:
-            r = sys.stdin.read()
-            if r:
-                print(r, "$")
-                my_list.append(r)
-                r = ''
-        # my_list.append("{\"function_name\":\"calc\", \"num\":233}")
-        # time.sleep(1)
-        # my_list.append("{\"function_name\":\"process_terminate\"}")
 
-    my_list = []
-    t = threading.Thread(target=lambda: listener())
-    t.start()
-    while globals()["process_running"]:
-        if my_list:
-            # print(my_list, "$")
-            w = my_list[0]
-            my_list.pop(0)
-            r = executor(w)
-            #sys.stdout.write(r)
-            #sys.stdout.write("$")
+    while True:
+        r = sys.stdin.read()
+        if r:
+            break
+    try:
+        executor(r)
+
+    except Exception as e:
+        raise e
+
 
 def run_in_thread():
     # at first here we expect that test_list should be made up of fn,
@@ -66,23 +55,25 @@ def run_in_thread():
             loop.thread_queue["test"][0].pop(0)
 
 
-
 def process_terminate():
-    print("www$")
     globals()["process_running"] = False
 
+
 def run_in_network():
+    from aiohttp import web
     app = web.Application()
-    md5 = hashlib.md5()
-    md5.update(('test' + config['salt']).encode('utf-8'))
-    routes = web.RouteTableDef()
 
-    @routes.get('/%s/{word}' % md5.hexdigest())
-    def handle(request, word):
-        return web.Response(text=executor(word))
-    t = threading.Thread(target=lambda: web.run_app(app))
-    t.start()
+    def handle(request):
+        return web.Response(text=executor(request.match_info['word']))
 
+    def setup_routes(app):
+        md5 = hashlib.md5()
+        md5.update(('test' + config['salt']).encode('utf-8'))
+        app.router.add_get('/%s/{word}' % md5.hexdigest(), handle)
+
+    setup_routes(app)
+    web.run_app(app, host='0.0.0.0', port=9000)
 
 if __name__ == "__main__":
-    run_in_process()
+    #run_in_process()
+    run_in_network()
